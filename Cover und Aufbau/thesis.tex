@@ -3,7 +3,7 @@
     a4paper,
     sfdefaults=false,
     toc=chapterentrywithdots,
-    twoside,openright,
+    oneside,openright,
     titlepage,
     parskip=half,
     headings=normal,  % reduces heading size
@@ -18,31 +18,30 @@
 
 
 % details about your thesis
-\newcommand{\titel}{My very fancy thesis title.}
+\newcommand{\titel}{Untersuchung der Programmiersprache Go}
 \newcommand{\artderarbeit}{Bachelorarbeit}  % {Bachelorarbeit,Masterarbeit}
-\newcommand{\autor}{Georg Simon Ohm}
+\newcommand{\autor}{Sebastian Roßband}
 \newcommand{\studiengang}{Informatik}  % {Informatik,Wirtschaftsinformatik,Medieninformatik}
-\newcommand{\matrikelnr}{123\,4567}
-\newcommand{\erstgutachter}{Prof.\,Dr.~Korbinian Riedhammer}
-\newcommand{\zweitgutachter}{Prof.\,Dr.~Bartosz von\,Rymon\,Lipinski}
-\newcommand{\betreuer}{M.Sc.\,~Martina Schmidt}
-\newcommand{\unternehmen}{Musterfirma GmbH}
+\newcommand{\matrikelnr}{3529274}
+\newcommand{\erstgutachter}{Prof.\,Dr.~Matthias Teßmann}
+\newcommand{\zweitgutachter}{Prof.\,Dr.~Joachim Scheja}
 \newcommand{\logo}{figures/TH-Nuernberg-RGB.png}
-\newcommand{\keywords}{hot, fuzz}
+\newcommand{\keywords}{Programmiersprachen, Go}
  
-
+\pagestyle{plain}
 % custom head and foot
-\usepackage[automark]{scrlayer-scrpage}
-\pagestyle{scrheadings}
-\ihead{\headmark}
-\chead{}
-\ohead{\pagemark}
-\renewcommand*\chaptermarkformat{\chapappifchapterprefix{\ }% 
-  \thechapter.\enskip}
+%\usepackage[automark]{scrlayer-scrpage}
+%\pagestyle{scrheadings}
+%\ihead{\headmark}
+%\chead{}
+%\ohead{\pagemark}
+%\renewcommand*\chaptermarkformat{\chapappifchapterprefix{\ }% 
+%  \thechapter.\enskip}
 
 \RedeclareSectionCommand[tocindent=0pt]{section}
 \RedeclareSectionCommand[tocindent=0pt]{subsection}
 %\RedeclareSectionCommand[tocnumwidth=70pt]{chapter}
+
 
 \usepackage{scrhack}
 
@@ -51,7 +50,7 @@
 \usepackage[T1]{fontenc}
 \usepackage{lmodern,relsize,textcomp,csquotes}
 \usepackage{amsmath,amsfonts}
-\usepackage[ngerman,english]{babel}  % flip for German thesis
+\usepackage[english,ngerman]{babel}  % flip for German thesis(momentan ist deutsch)
 \usepackage[final]{graphicx}
 \usepackage{setspace,geometry,xcolor}
 \usepackage{makeidx}
@@ -59,7 +58,6 @@
 \usepackage{url}
 \usepackage[toc]{glossaries}
 \usepackage{pdfpages}
-
 % table setup
 \usepackage{longtable}
 \usepackage{array}
@@ -93,15 +91,36 @@
 % configure your listings style
 \usepackage{listings}
 \lstset{
-	tabsize=3,
-	extendedchars=true,
-	frame=single,
-	showstringspaces=true,
-	numbers=left,
-	numberstyle=\small,
-	breakautoindent=true
+	language=go,
+    backgroundcolor=\color{backcolour},   
+    commentstyle=\color{commentgreen},
+    keywordstyle=\color{keywordcolor},
+    numberstyle=\tiny\color{codegray},
+    stringstyle=\color{codepurple},
+    basicstyle=\ttfamily\footnotesize,
+    breakatwhitespace=false,         
+    breaklines=true,                 
+    captionpos=b,                    
+    keepspaces=true,                 
+    numbers=left,                    
+    numbersep=5pt,                  
+    showspaces=false,                
+    showstringspaces=false,
+    showtabs=false,                  
+    tabsize=2
 }
+\definecolor{commentgreen}{rgb}{0,0.6,0}
+\definecolor{codegray}{rgb}{0.5,0.5,0.5}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{backcolour}{rgb}{0.95,0.95,0.92}
+\definecolor{keywordcolor}{HTML}{B85042}
 
+\usepackage[
+backend=biber,
+style=numeric,sorting=none,giveninits=true,maxbibnames=99
+]{biblatex}
+\addbibresource{references.bib} %Imports bibliography file
+%\nocite{*}
 % page setup
 % \setlength{\topskip}{\ht\strutbox}
 \geometry{paper=a4paper,left=2.5cm,top=3.0cm,bindingoffset=.8cm}
@@ -121,57 +140,54 @@
 \newcommand{\ie}{\mbox{i.\,e.\ }}
 \newcommand{\wrt}{\mbox{w.\,r.\,t.\ }}
 \newcommand{\etal}{\mbox{\emph{et\,al.\ }}}
+\newcommand*{\escape}[1]{\texttt{\textbackslash#1}}
 
 
-% TODO remove if not needed...
-\usepackage{blindtext}
-
+\onehalfspacing
 % load glossary entries
-\makenoidxglossaries
-\loadglsentries{glossary}
+%\makenoidxglossaries
+%\loadglsentries{glossary}
+\renewcommand{\chapterheadstartvskip}{\vspace*{-10pt}}
 
 \begin{document}
-
-\setcounter{secnumdepth}{3}  % numerate subsections
-\setcounter{tocdepth}{2}  % ...but don't include them in toc
+%\setcounter{secnumdepth}{3}  % numerate subsections
+%\setcounter{tocdepth}{2}  % ...but don't include them in toc
 
 \frontmatter
-\include{cover}\cleardoublepage
+\include{cover}%\cleardoublepage
 
 % download the following form (requires VPN) and complete it (hit save in your editor)
 % https://intern.ohmportal.de/fileadmin/Public_Docs/SB/SB_0009_FO_Pruefungsrechtliche_Erklaerung_und_Erklaerung_zur_Veroeffentlichung_der_Abschlussarbeit_public.pdf
 %\includepdf{SB_0009_FO_Pruefungsrechtliche_Erklaerung_und_Erklaerung_zur_Veroeffentlichung_der_Abschlussarbeit_public.pdf}\cleardoublepage
 
-\include{content/0_abstract}\cleardoublepage
-
+%\include{content/0_abstract}\cleardoublepage
+\makeatletter\@openrightfalse
 \tableofcontents
 
+\@openrighttrue\makeatother 
+\let\cleardoublepage=\clearpage
 \mainmatter
-\include{content/1_intro}
-\include{content/2_data}
+\include{content/1_Einleitung}
+\include{content/2_Theorie_Grundlage}
 \include{content/3_method}
-\include{content/4_experiments}
-\include{content/5_outlook}
-\include{content/6_summary}
-
-% remove if not needed
-\appendix
-\include{content/a1_supplemental}
+\include{content/4_Fazit}
 
 \backmatter
-\listoffigures
-\cleardoublepage
+%\listoffigures
+%\cleardoublepage
 
-\listoftables
-\cleardoublepage
+%\listoftables
+%\cleardoublepage
 
-\renewcommand{\lstlistlistingname}{List of Listings}  % change for German thesis
-\lstlistoflistings
-\cleardoublepage
+%\renewcommand{\lstlistlistingname}{List of Listings}  % change for German thesis
+%\lstlistoflistings
+%\cleardoublepage
 
-\bibliographystyle{wmaainf}
-\bibliography{refs}
+%\bibliographystyle{wmaainf}
+%\bibliography{refs}
 
-\printnoidxglossaries
+%\printnoidxglossaries
+\printbibliography
+% remove if not needed
 
 \end{document}
