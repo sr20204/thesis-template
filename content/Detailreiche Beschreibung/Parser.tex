@@ -1,0 +1,345 @@
+\subsection{Parsing}
+Der Parser beginnt in der Parser init funktion die internen Variablen auf die Startwerte zu setzen.
+\begin{lstlisting}
+type parser struct {
+	file  *PosBase
+	errh  ErrorHandler
+	mode  Mode
+	pragh PragmaHandler
+	scanner
+
+	base      *PosBase // current position base
+	first     error    // first error encountered
+	errcnt    int      // number of errors encountered
+	pragma    Pragma   // pragmas
+	goVersion string   // Go version from //go:build line
+
+	top    bool   // in top of file (before package clause)
+	fnest  int    // function nesting level (for error handling)
+	xnest  int    // expression nesting level (for complit ambiguity resolution)
+	indent []byte // tracing support
+}
+\end{lstlisting}
+
+Die Variable scanner ist der davor initialiserte Scanner.
+Der Source Code wird zu Token aufgeteilt(lexical analysis) und geparsed(syntax analysis). Daraufhin entsteht ein Syntax Tree für jedes einzelne File.  
+\begin{lstlisting}
+
+type Mode uint
+
+const (
+	CheckBranches Mode = 1 << iota // check correct use of labels, break, continue, and goto statements
+)
+
+type Error struct {
+	Pos Pos
+	Msg string
+}
+
+func (err Error) Error() string {
+	return fmt.Sprintf("%s: %s", err.Pos, err.Msg)
+}
+
+var _ error = Error{} // verify that Error implements error
+
+type ErrorHandler func(err error)
+
+type Pragma interface{}
+\end{lstlisting}
+Am Anfang des Syntax.Go Dokuments werden einige benötigte Typen definiert. Ein Mode für Checkbranches. Ein Error Typ, der die Position und eine Nachricht festhält, ebenso wie einen zuständigen ErrorHandler. Pragma hat was mit den go directives zu tun.
+\begin{lstlisting}
+func Parse(base *PosBase, src io.Reader, errh ErrorHandler, pragh PragmaHandler, mode Mode) (_ *File, first error) {
+	defer func() {
+		if p := recover(); p != nil {
+			if err, ok := p.(Error); ok {
+				first = err
+				return
+			}
+			panic(p)
+		}
+	}()
+
+	var p parser
+	p.init(base, src, errh, pragh, mode)
+	p.next()
+	return p.fileOrNil(), p.first
+}
+\end{lstlisting}
+Im nächsten Schritt wird die Funktion Parse definiert. Diese benutzt die entsprechenden Felder, um Dinge wie den Source Code als IO Stream zu übergeben. Hier wird ein Parser definiert, der nach der Initialisation auf das erste Token geschaltet wird. In der Parser Initialisation wird der oben beschriebene Scanner Initialisiert. Wenn bei der Parse Funktion ein Panic auftritt, z.B indem ein Syntax Error auftritt, wird dieses recovered und der Fehler wird übergeben und das Programm ist zu Ende. Falls es kein Syntax Fehler war sondern ein anderer Panic Fehler, wird weiterhin mit Panic das Programm unterbrochen. Anschließend wird weiterhin das Programm mit Panic unterbrochen.
+
+Ebenso existiert eine Funktion ParseFile, die Parse benutzt und als Source nicht einen Text sondern ein File benutzt.
+
+Mit der Funktion fileOrNil geht es weiter. If trace = true, dann wird die trace Funktion aufgerufen.
+
+\begin{lstlisting}
+func (p *parser) fileOrNil() *File {
+if trace {
+		defer p.trace("file")()
+	}
+
+	f := new(File)
+	f.pos = p.pos()
+
+	// PackageClause
+	f.GoVersion = p.goVersion
+	p.top = false
+	if !p.got(_Package) {
+		p.syntaxError("package statement must be first")
+		return nil
+	}
+	f.Pragma = p.takePragma()
+	f.PkgName = p.name()
+	p.want(_Semi)
+
+	// don't bother continuing if package clause has errors
+	if p.first != nil {
+		return nil
+	}
+
+	// Accept import declarations anywhere for error tolerance, but complain.
+	// { ( ImportDecl | TopLevelDecl ) ";" }
+	prev := _Import
+	for p.tok != _EOF {
+		if p.tok == _Import && prev != _Import {
+			p.syntaxError("imports must appear before other declarations")
+		}
+		prev = p.tok
+
+		switch p.tok {
+		case _Import:
+			p.next()
+			f.DeclList = p.appendGroup(f.DeclList, p.importDecl)
+
+		case _Const:
+			p.next()
+			f.DeclList = p.appendGroup(f.DeclList, p.constDecl)
+
+		case _Type:
+			p.next()
+			f.DeclList = p.appendGroup(f.DeclList, p.typeDecl)
+
+		case _Var:
+			p.next()
+			f.DeclList = p.appendGroup(f.DeclList, p.varDecl)
+
+		case _Func:
+			p.next()
+			if d := p.funcDeclOrNil(); d != nil {
+				f.DeclList = append(f.DeclList, d)
+			}
+
+		default:
+			if p.tok == _Lbrace && len(f.DeclList) > 0 && isEmptyFuncDecl(f.DeclList[len(f.DeclList)-1]) {
+				// opening { of function declaration on next line
+				p.syntaxError("unexpected semicolon or newline before {")
+			} else {
+				p.syntaxError("non-declaration statement outside function body")
+			}
+			p.advance(_Import, _Const, _Type, _Var, _Func)
+			continue
+		}
+
+		// Reset p.pragma BEFORE advancing to the next token (consuming ';')
+		// since comments before may set pragmas for the next function decl.
+		p.clearPragma()
+
+		if p.tok != _EOF && !p.got(_Semi) {
+			p.syntaxError("after top level declaration")
+			p.advance(_Import, _Const, _Type, _Var, _Func)
+		}
+	}
+	// p.tok == _EOF
+
+	p.clearPragma()
+	f.EOF = p.pos()
+
+	return f
+}
+\end{lstlisting}
+Ein neues File wird in der Variable f erstellt. Die Position wird von der aktuellen Parser Position übernommen. Als Nächstes wird die Funktion got(token) benutzt.
+
+\begin{lstlisting}
+func (p *parser) got(tok token) bool {
+	if p.tok == tok {
+		p.next()
+		return true
+	}
+	return false
+}
+\end{lstlisting}
+Diese überprüft, ob das aktuelle Parser Token mit dem übergebenen Token übereinstimmt, gibt true oder false heraus und schaltet auf das nächste Token, wenn es übereinstimmt.
+
+Somit wird überprüft, ob das erste Token, welches vorkommt im File, ein Package Token ist. Dieses muss als erstes Statement auftreten.
+
+\begin{lstlisting}
+// takePragma returns the current parsed pragmas
+// and clears them from the parser state.
+func (p *parser) takePragma() Pragma {
+	prag := p.pragma
+	p.pragma = nil
+	return prag
+}
+\end{lstlisting}
+Als nächstes werden die Pragmas vom Parser genommen(die schon geparsed sind), dort gecleart und in dem File gespeichert. Bei erstem Aufruf sollten dass kaum eine sein. Ebenso wird der Package Name umgespeichert. Dann wird die want Funktion mit dem Semi Token aufgerufen.
+
+\begin{lstlisting}
+func (p *parser) want(tok token) {
+	if !p.got(tok) {
+		p.syntaxError("expected " + tokstring(tok))
+		p.advance()
+	}
+}
+\end{lstlisting}
+Diese überprüft, ob der übergebene Token übereinstimmt. Ist dies nicht der Fall, wird ein Syntax Fehler aufgerufen zusammen mit der Funktion advance. 
+
+\begin{lstlisting}
+// advance consumes tokens until it finds a token of the stopset or followlist.
+// The stopset is only considered if we are inside a function (p.fnest > 0).
+// The followlist is the list of valid tokens that can follow a production;
+// if it is empty, exactly one (non-EOF) token is consumed to ensure progress.
+func (p *parser) advance(followlist ...token) {
+	if trace {
+		p.print(fmt.Sprintf("advance %s", followlist))
+	}
+
+	// compute follow set
+	// (not speed critical, advance is only called in error situations)
+	var followset uint64 = 1 << _EOF // don't skip over EOF
+	if len(followlist) > 0 {
+		if p.fnest > 0 {
+			followset |= stopset
+		}
+		for _, tok := range followlist {
+			followset |= 1 << tok
+		}
+	}
+
+	for !contains(followset, p.tok) {
+		if trace {
+			p.print("skip " + p.tok.String())
+		}
+		p.next()
+		if len(followlist) == 0 {
+			break
+		}
+	}
+
+	if trace {
+		p.print("next " + p.tok.String())
+	}
+}
+\end{lstlisting}
+Diese Funktion nimmt Token und schaltet auf das nächste, bis ein Token aus der übergebenen Liste auftaucht oder das Ende des Files. In dem konkreten Beispiel wird die Funktion mit leerem Parameter aufgerufen. Das bedeutet, dass nur am Ende des Files angehalten wird und somit alle Token übersprungen werden. Zusammen mit der Rückgabe eines Syntax Errors bedeutet dies das Ende des Parsers.
+
+Ist das Semi Token vorhanden, wird normal fortgefahren. Dieses Semi Token ist entweder ein Strichpunkt, eine neue Zeile oder das Ende des Files. Somit wird überprüft, ob ein Abstand zwischen dem Package Statement vorhanden ist. Das z.B. Import Statement in die gleiche Zeile wie das Package Statement zu packen, funktioniert somit nicht.
+
+Weiter in der fileOrNil Funktion geht es mit einer For Schleife. Diese läuft bis File Ende und überprüft zuerst ob Import Statements vorhanden sind. Bei Deklaration nach anderen Statements wird ein SyntaxError ausgegeben, der Parser läuft aber weiter. 
+
+Mit Switch Case werden einzelne Token Fälle behandelt. Bei Import, Konstanten, Typ oder Variablen Deklarationen wird die Deklaration in einer jeweiligen Gruppe gesammelt und auf den nächsten Token weitergeschalten. Bei einem Funktionstoken wird zuerst die Funktion funcDeclOrNil aufgerufen und anschließend eine Gruppe gebildet.
+
+\begin{lstlisting}
+func (p *parser) funcDeclOrNil() *FuncDecl {
+	if trace {
+		defer p.trace("funcDecl")()
+	}
+
+	f := new(FuncDecl)
+	f.pos = p.pos()
+	f.Pragma = p.takePragma()
+
+	var context string
+	if p.got(_Lparen) {
+		context = "method"
+		rcvr := p.paramList(nil, nil, _Rparen, false)
+		switch len(rcvr) {
+		case 0:
+			p.error("method has no receiver")
+		default:
+			p.error("method has multiple receivers")
+			fallthrough
+		case 1:
+			f.Recv = rcvr[0]
+		}
+	}
+
+	if p.tok == _Name {
+		f.Name = p.name()
+		f.TParamList, f.Type = p.funcType(context)
+	} else {
+		f.Name = NewName(p.pos(), "_")
+		f.Type = new(FuncType)
+		f.Type.pos = p.pos()
+		msg := "expected name or ("
+		if context != "" {
+			msg = "expected name"
+		}
+		p.syntaxError(msg)
+		p.advance(_Lbrace, _Semi)
+	}
+
+	if p.tok == _Lbrace {
+		f.Body = p.funcBody()
+	}
+
+	return f
+}
+\end{lstlisting}
+In dieser Funktion wird überprüft, ob der Funktionsaufbau stimmt. Da das erste Token immer das func Keyword ist, muss dies nicht mehr überprüft werden. Zuerst wird überprüft, ob direkt nach dem func Keyword ein Lparens Token folgt. Dieses stellt eine linke Klammer ( dar. Ist diese vorhanden, handelt es sich um eine Methode und es muss ein Methodenreciever definiert werden. Bei Reciever oder  mehr als eine wird ein Fehler zurückgegeben. Ansonsten wird der Reciever gespeichert. Dies passiert in der Funktion paramList die dementsprechend aufgerufen wird.
+Als Nächstes muss der Funktionsname folgen. 
+
+Danach könnten TypParameter folgen. Diese werden in [] nach dem Namen definiert und bewirken, dass eine Funktion für einen generische Typ und somit mehrere konkrete Typen definiert werden kann. Dies wird mi
+
+\begin{lstlisting}
+func (p *parser) funcType(context string) ([]*Field, *FuncType) {
+	if trace {
+		defer p.trace("funcType")()
+	}
+
+	typ := new(FuncType)
+	typ.pos = p.pos()
+
+	var tparamList []*Field
+	if p.got(_Lbrack) {
+		if context != "" {
+			// accept but complain
+			p.syntaxErrorAt(typ.pos, context+" must have no type parameters")
+		}
+		if p.tok == _Rbrack {
+			p.syntaxError("empty type parameter list")
+			p.next()
+		} else {
+			tparamList = p.paramList(nil, nil, _Rbrack, true)
+		}
+	}
+
+	p.want(_Lparen)
+	typ.ParamList = p.paramList(nil, nil, _Rparen, false)
+	typ.ResultList = p.funcResult()
+
+	return tparamList, typ
+}
+\end{lstlisting}
+Es muss ein SyntaxFehler bei einer leeren TypParameter Liste gegeben werden. Nach den TypParamtern folgen die Funktionsparameter in runden Klammern().  Als Letztes muss der Rückgabetyp folgen. Dieser kann in runden Klammern stehen. Mit der Funktion funcResult und typeOrNil wird überprüft, um welchen Typ es sich handelt. Dies wird statt dem type\_ Token verwendet, da Rückgabewert weggelassen werden kann. 
+
+\begin{lstlisting}
+func (p *parser) funcResult() []*Field {
+	if trace {
+		defer p.trace("funcResult")()
+	}
+
+	if p.got(_Lparen) {
+		return p.paramList(nil, nil, _Rparen, false)
+	}
+
+	pos := p.pos()
+	if typ := p.typeOrNil(); typ != nil {
+		f := new(Field)
+		f.pos = pos
+		f.Type = typ
+		return []*Field{f}
+	}
+
+	return nil
+}
+
+\end{lstlisting}
